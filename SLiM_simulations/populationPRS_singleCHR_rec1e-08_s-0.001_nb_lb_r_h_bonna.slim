@@ -1,0 +1,181 @@
+/// # Population Simulation for PRS Analysis
+///
+
+initialize() {
+	
+	defineConstant("simID", getSeed());
+	
+	catn(paste("Start simulation with seed " + simID + " on " + date() + " at " + time()));
+	
+	setwd("/home/lfohler/PRS_transferability/sim/nb_lb_r/h_" + h + "/seed_" + simID + "/"); // bonna
+	
+	initializeSLiMOptions(keepPedigrees = T);
+	
+	// dominance coefficient: additive, (almost) recessive, (incomplete) dominance
+	// (0.0 -> recessive, 1.0 -> dominant)
+	defineConstant("s", -0.001);
+	
+	// m1 mutationtype: neutral
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	// m2 mutationtype: deleterious
+	initializeMutationType("m2", h, "f", s);
+	
+	// length of 22 chromosomes with recombination interspaces
+	c_length = 1000 * 1e5;
+	
+	// genomic elements: g1 -> gene, g2 -> no gene
+	initializeGenomicElementType("g1", c(1,2), c(8,1)); // ratio between neutral and deleterious mutation is 8:1
+	initializeGenomicElementType("g2", 1, 1); // neutral mutations for non-coding
+	
+	m1.color = "pink";
+	m2.color = "green";
+	g1.color = "blue";
+	g2.color = "lightblue";
+	m2.mutationStackPolicy = "l";
+	
+	// starting positions of alternating genes and non-coding sections
+	start = readFile("/home/lfohler/startSingleChr.txt");
+	start = asInteger(start);
+	defineConstant("START", start);
+	
+	// corresponding ending positions, genomic element types and mutation rates
+	end = c(start[1:(length(start)-1)] - 1, sum(c_length));
+	end = asInteger(end);
+	defineConstant("END", end);
+	
+	genomicType = rep(0, length(start));
+	mutationRate = rep(0.0, length(start)); // could be set directly, but commands are kept for easier adjustment
+	
+	for(i in seqAlong(start)){
+		if (i % 2 == 0) {
+			genomicType[i] = 2;
+			mutationRate[i] = 1.2e-8; // also neutral mutations for non coding
+		} else {
+			genomicType[i] = 1;
+			mutationRate[i] = 1.2e-8;
+		}
+	}
+	
+	// genomic types with specified mutation rates
+	for(i in seqAlong(genomicType)){
+		initializeGenomicElement(genomicType[i], start[i], end[i]);
+	}
+	initializeMutationRate(mutationRate, end);
+	
+	// constant recombination rate over all bp
+	defineConstant("recRate", 1e-8);
+	initializeRecombinationRate(recRate);
+	
+	// two sexes
+	initializeSex("A");
+
+}
+
+///
+/// **Demography:**
+
+// ancestral African population
+1 /* add p1 */ { sim.addSubpop("p1", n_b); }
+
+10 /* log p1*/ {
+	log = sim.createLogFile("sim_log_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p1.txt", logInterval=10);
+	log.addGeneration();
+	log.addSubpopulationSize(p1);
+	log.addCustomColumn("mutation load", "(sum(p1.individuals.countOfMutationsOfType(m2))) / p1.individualCount;");
+	log.addCustomColumn("Watterson's theta", "calcWattersonsTheta(p1.genomes);");
+	log.addCustomColumn("mean fitness", "mean(p1.cachedFitness(NULL));");
+}
+
+// Expand the African population
+73105 /* expansion of p1*/ { p1.setSubpopulationSize(n_fin); }
+
+// Split non-Africans from Africans
+76968 /* split: p2, log p2, FST and BR for p1&p2*/ {
+	sim.addSubpopSplit("p2", n_b, p1);
+	
+	// sim log p2 (mutation load, watterson's theta)
+	log = sim.createLogFile("sim_log_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p2.txt", logInterval=10);
+	log.addGeneration();
+	log.addSubpopulationSize(p2);
+	log.addCustomColumn("mutation load", "(sum(p2.individuals.countOfMutationsOfType(m2))) / p2.individualCount;");
+	log.addCustomColumn("Watterson's theta", "calcWattersonsTheta(p2.genomes);");
+	log.addCustomColumn("mean fitness", "mean(p2.cachedFitness(NULL));");
+	
+	// FST and burden ratio calculation p1 p2
+	log = sim.createLogFile("FST_BR_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p1p2.txt", logInterval=10);
+	log.addGeneration();
+	log.addCustomColumn("FST", "calcFST(p1.genomes, p2.genomes);");
+	log.addCustomColumn("burden ratio", "((sum(p1.individuals.countOfMutationsOfType(m2))) / p1.individualCount)/((sum(p2.individuals.countOfMutationsOfType(m2))) / p2.individualCount);");
+}
+
+// Split p2 into European and East Asian subpopulations
+77968 /* split: p3, log p3, FST and BR for p1&p3, p2&p3*/ {
+	sim.addSubpopSplit("p3", n_b, p2);
+	
+	// sim log p3 (mutation load, watterson's theta)
+	log = sim.createLogFile("sim_log_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p3.txt", logInterval=10);
+	log.addGeneration();
+	log.addSubpopulationSize(p3);
+	log.addCustomColumn("mutation load", "(sum(p3.individuals.countOfMutationsOfType(m2))) / p3.individualCount;");
+	log.addCustomColumn("Watterson's theta", "calcWattersonsTheta(p3.genomes);");
+	log.addCustomColumn("mean fitness", "mean(p3.cachedFitness(NULL));");
+	
+	
+	// FST and burden ratio calculation p1 p3
+	log = sim.createLogFile("FST_BR_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p1p3.txt", logInterval=10);
+	log.addGeneration();
+	log.addCustomColumn("FST", "calcFST(p1.genomes, p3.genomes);");
+	log.addCustomColumn("burden ratio", "((sum(p1.individuals.countOfMutationsOfType(m2))) / p1.individualCount)/((sum(p3.individuals.countOfMutationsOfType(m2))) / p3.individualCount);");
+	
+	// FST and burden ratio calculation p2 p3
+	log = sim.createLogFile("FST_BR_seed" + simID + "_rec" + recRate + "_s" + s + "_h" + h + "_p2p3.txt", logInterval=10);
+	log.addGeneration();
+	log.addCustomColumn("FST", "calcFST(p2.genomes, p3.genomes);");
+	log.addCustomColumn("burden ratio", "((sum(p2.individuals.countOfMutationsOfType(m2))) / p2.individualCount)/((sum(p3.individuals.countOfMutationsOfType(m2))) / p3.individualCount);");
+
+}
+
+// Set up exponential growth in Europe and East Asia
+// Where N(0) is the base subpopulation size and t = gen - 77968:
+//    N(Europe) should be int(round(N(0) * e^(0.0038*t)))
+//    N(East Asia) should be int(round(N(0) * e^(0.0048*t)))
+77968:78908 /* expansion of p2 and p3*/ {
+	t = sim.generation - 77968;
+	p2_size = round(n_b * exp(r_exp * t));
+	p3_size = round(n_b * exp(r_exp * t));
+	
+	p2.setSubpopulationSize(asInteger(p2_size));
+	p3.setSubpopulationSize(asInteger(p3_size));
+}
+
+78909 /* output VCF */ { // "gravel": 18000
+	catn(paste("Start VCF p1 saving on " + date() + " at " + time()));
+	p1.genomes.outputVCF("out_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p1.vcf");
+	catn(paste("End VCF p1 saving on " + date() + " at " + time()));
+	
+	catn(paste("Start VCF p2 saving on " + date() + " at " + time()));
+	p2.genomes.outputVCF("out_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p2.vcf");
+	catn(paste("End VCF p2 saving on " + date() + " at " + time()));
+	
+	catn(paste("Start VCF p3 saving on " + date() + " at " + time()));
+	p3.genomes.outputVCF("out_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p3.vcf");
+	catn(paste("End VCF p3 saving on " + date() + " at " + time()));
+}
+
+78909 /* output fitness and sex */ { // "gravel": 18000
+	fitness_p1 = p1.cachedFitness(NULL);
+	fitness_p2 = p2.cachedFitness(NULL);
+	fitness_p3 = p3.cachedFitness(NULL);
+	sex_p1 = p1.individuals.sex;
+	sex_p2 = p2.individuals.sex;
+	sex_p3 = p3.individuals.sex;
+	
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p1.txt", "id, fitness, sex");
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p1.txt", "i" + 0:(p1.individualCount-1) + "," + fitness_p1 + "," + sex_p1, append = T);
+	
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p2.txt", "id, fitness, sex");
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p2.txt", "i" + 0:(p2.individualCount-1) + "," + fitness_p2 + "," + sex_p2, append = T);
+	
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p3.txt", "id, fitness, sex");
+	writeFile("fitness_sex_seed" + simID + "_nb" + n_b + "_lb" +l_b + "_rexp" + r_exp + "_rec" + recRate + "_s" + s + "_h" + h + "_p3.txt", "i" + 0:(p3.individualCount-1) + "," + fitness_p3 + "," + sex_p3, append = T);
+}

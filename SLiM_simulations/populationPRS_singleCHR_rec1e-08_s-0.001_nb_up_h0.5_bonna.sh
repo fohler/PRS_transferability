@@ -1,0 +1,12 @@
+#!/bin/sh
+#SBATCH --job-name=slim_nb_up
+#SBATCH --time=4-00:00:00
+#SBATCH --account=ag_igsb_krawitz
+#SBATCH --partition=long
+#SBATCH --array=1-50
+#SBATCH --mem=94G
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=fohler@uni-bonn.de
+module load SLiM
+slim -s $SLURM_ARRAY_TASK_ID -d h=0.5 -d n_b=4000 -d l_b=1000 -d r_exp=0.002449559 -d n_fin=40000  /home/lfohler/populationPRS_singleCHR_rec1e-08_s-0.001_nb_up_h_bonna.slim
+wait
